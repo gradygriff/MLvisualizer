@@ -1,0 +1,29 @@
+venv/
+*/venv/
+ml-engine/ml-service/venv
+.idea
+out
+# Ignore venvs
+venv/
+*/venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.so
+
+# OS junk
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Models and weights
+*.h5
+*.pkl
+*.pt
+*.onnx

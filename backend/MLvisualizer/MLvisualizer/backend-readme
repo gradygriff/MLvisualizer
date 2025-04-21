@@ -1,0 +1,2 @@
+start on 8080:
+./mvnw spring-boot:run

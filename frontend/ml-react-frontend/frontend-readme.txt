@@ -1,0 +1,1 @@
+npm start, frontend listening on http://localhost:3000
