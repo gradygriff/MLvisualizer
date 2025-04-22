@@ -1,126 +1,90 @@
-from flask import Flask, request, jsonify
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import numpy as np
-import io
 import base64
+from flask import Flask, request, jsonify  # Added request and jsonify
+from io import BytesIO
 
+# Create Flask app
 app = Flask(__name__)
 
-# === PyTorch Logistic Regression Model ===
-class LogisticRegressionModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.linear = nn.Linear(2, 1)
-
-    def forward(self, x):
-        return torch.sigmoid(self.linear(x))
-
-# === PyTorch Linear Regression Model ===
 class LinearRegressionModel(nn.Module):
-    def __init__(self):
+    def __init__(self, input_dim):
         super().__init__()
-        self.linear = nn.Linear(1, 1)
+        self.linear = nn.Linear(input_dim, 1)
 
     def forward(self, x):
         return self.linear(x)
 
-# === TRAINING ROUTES ===
+def plot_model(X, y, model, epoch=None):
+    plt.figure()
+    plt.scatter(X, y, color='blue', label='Data points')
 
-@app.route('/train_logistic', methods=['POST'])
-def train_logistic():
-    data = request.get_json()
-    X = np.array(data['features'], dtype=np.float32)
-    y = np.array(data['labels'], dtype=np.float32).reshape(-1, 1)
+    with torch.no_grad():
+        x_vals = torch.linspace(X.min(), X.max(), 100).unsqueeze(1)
+        y_vals = model(x_vals).numpy()
+        plt.plot(x_vals.numpy(), y_vals, color='red', label='Model prediction')
 
-    model = LogisticRegressionModel()
-    criterion = nn.BCELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    if epoch is not None:
+        plt.title(f'Epoch {epoch+1}')
+    else:
+        plt.title('Final Trained Model')
 
-    images = []
-    for epoch in range(20):
-        inputs = torch.tensor(X)
-        labels = torch.tensor(y)
+    plt.xlabel('Feature')
+    plt.ylabel('Label')
+    plt.legend()
 
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-
-        img = plot_decision_boundary(X, y.ravel(), model, epoch)
-        images.append(img)
-
-    return jsonify({'message': 'Logistic model trained', 'images': images})
-
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close()
+    return img_base64
 
 @app.route('/train_linear', methods=['POST'])
 def train_linear():
     data = request.get_json()
-    print("data", data)
-    X = np.array(data['features'], dtype=np.float32).reshape(-1, 1)
-    y = np.array(data['labels'], dtype=np.float32).reshape(-1, 1)
+    print("training started")
 
-    model = LinearRegressionModel()
+    features = data.get('features')
+    labels = data.get('labels')
+
+    if not features or not labels:
+        return jsonify({"error": "Missing features or labels"}), 400
+
+    X = np.array(features, dtype=np.float32)
+    y = np.array(labels, dtype=np.float32).reshape(-1, 1)
+
+    input_dim = X.shape[1] if X.ndim > 1 else 1
+    X = X.reshape(-1, input_dim)  # Ensure 2D
+    model = LinearRegressionModel(input_dim)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.15)
 
-    images = []
+    inputs = torch.tensor(X, dtype=torch.float32)
+    targets = torch.tensor(y, dtype=torch.float32)
+
+    training_images = []
     for epoch in range(20):
-        inputs = torch.tensor(X)
-        labels = torch.tensor(y)
-
         optimizer.zero_grad()
         outputs = model(inputs)
-        loss = criterion(outputs, labels)
+        loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
 
-        img = plot_linear(X, y, model, epoch)
-        images.append(img)
+        img = plot_model(X, y, model, epoch)
+        training_images.append(img)
 
-    return jsonify({'message': 'Linear model trained', 'images': images})
+    completed_image = plot_model(X, y, model)  # Final result
 
+    print("training complete")
 
-# === PLOTTING ===
-
-def plot_decision_boundary(X, y, model, iteration):
-    x_min, x_max = X[:,0].min()-1, X[:,0].max()+1
-    y_min, y_max = X[:,1].min()-1, X[:,1].max()+1
-    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100),
-                         np.linspace(y_min, y_max, 100))
-    grid = np.c_[xx.ravel(), yy.ravel()]
-    with torch.no_grad():
-        logits = model(torch.tensor(grid, dtype=torch.float32))
-    Z = logits.reshape(xx.shape).numpy()
-
-    plt.contourf(xx, yy, Z, levels=[0,0.5,1], alpha=0.2)
-    plt.scatter(X[:,0], X[:,1], c=y, cmap='bwr')
-    plt.title(f"Logistic Iteration {iteration}")
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode('utf-8')
-
-
-def plot_linear(X, y, model, iteration):
-    with torch.no_grad():
-        x_tensor = torch.tensor(X)
-        y_pred = model(x_tensor).numpy()
-
-    plt.scatter(X, y, color='blue')
-    plt.plot(X, y_pred, color='red')
-    plt.title(f"Linear Iteration {iteration}")
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close()
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode('utf-8')
-
+    return jsonify({
+        "message": "Model trained successfully",
+        "completed_image": completed_image,
+        "training_images": training_images
+    }), 200
 
 if __name__ == '__main__':
-    app.run(port=5000)
+    app.run(debug=True)
